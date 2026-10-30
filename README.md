@@ -8,6 +8,26 @@ Task Tracker (Node.js + Express + MySQL) containerized with Docker, infrastructu
 
 ### 1. Provision infrastructure with Terraform
 
+Install Terraform (Ubuntu/Debian):
+
+```bash
+sudo apt-get update && sudo apt-get install -y gnupg software-properties-common curl unzip
+wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt-get update && sudo apt-get install -y terraform
+terraform -version
+```
+
+Install the AWS CLI and configure credentials:
+
+```bash
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+aws configure
+```
+
 Creates the VPC, public subnet, Internet Gateway, route table, security group, ECR repository and EC2 instance.
 
 ```bash
@@ -33,18 +53,72 @@ Create an RDS MySQL instance in the same VPC with database name `task_tracker`. 
 
 ### 3. Prepare the EC2 instance
 
-SSH into the instance and install Docker, Jenkins, AWS CLI and Git. Allow inbound ports `8080` (application) and `8081` (Jenkins) in the security group.
+SSH into the instance:
 
 ```bash
 ssh -i <key>.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-Give the Jenkins user access to Docker and attach an IAM role (or configure credentials) that lets the instance push to ECR:
+**Install Docker**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker ubuntu
+docker --version
+```
+
+**Install AWS CLI**
+
+```bash
+sudo apt-get install -y unzip
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+```
+
+**Install Jenkins**
+
+```bash
+sudo apt-get install -y fontconfig openjdk-21-jre-headless
+sudo mkdir -p /etc/apt/keyrings
+sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y jenkins
+```
+
+Run Jenkins on port `8081` (port `8080` is used by the application):
+
+```bash
+sudo mkdir -p /etc/systemd/system/jenkins.service.d
+printf '[Service]\nEnvironment="JENKINS_PORT=8081"\n' | sudo tee /etc/systemd/system/jenkins.service.d/override.conf
+sudo systemctl daemon-reload
+```
+
+Give Jenkins access to Docker and start it:
 
 ```bash
 sudo usermod -aG docker jenkins
+sudo systemctl enable jenkins
 sudo systemctl restart jenkins
+sudo systemctl status jenkins
 ```
+
+Get the initial admin password:
+
+```bash
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+Allow inbound ports `8080` (application) and `8081` (Jenkins) in the security group. The instance also needs permission to push to ECR (IAM role attached to the instance, or `aws configure` for the `jenkins` user).
 
 ### 4. Create the environment file
 
